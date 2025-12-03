@@ -1,0 +1,22 @@
+# Binaries
+# Builds locales que no deben subir
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test output
+*.out
+
+# Go modules (vendor folder is optional, usually ignored)
+vendor/
+
+# Environment files
+.env
+
+# IDE specific
+.vscode/
+.idea/

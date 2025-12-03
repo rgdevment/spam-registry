@@ -1,0 +1,21 @@
+run:
+  timeout: 5m
+  tests: false
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck      # Fails if you ignore an error
+    - gosimple      # Suggests simplifications
+    - govet         # Reports suspicious constructs
+    - ineffassign   # Detects unused assignments
+    - staticcheck   # Huge static analysis tool
+    - typecheck     # Parses and type-checks Go code
+    - unused        # Checks for unused constants, variables, functions
+    - revive        # Fast, configurable, extensible, flexible, and beautiful linter
+    - bodyclose     # Checks whether HTTP response body is closed successfully (Crucial to avoid leaks)
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
