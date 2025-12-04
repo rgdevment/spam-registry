@@ -1,0 +1,18 @@
+services:
+  scylla:
+    image: scylladb/scylla:5.2
+    container_name: gsr_scylla
+    restart: always
+    ports:
+      - "9042:9042"
+    command: --smp 1 --memory 1G --overprovisioned 1 --api-address 0.0.0.0
+    volumes:
+      - scylla_data:/var/lib/scylla
+    networks:
+      - gsr_net
+
+volumes:
+  scylla_data:
+
+networks:
+  gsr_net:
