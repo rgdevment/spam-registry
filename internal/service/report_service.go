@@ -82,87 +82,102 @@ func (s *reportService) CalculateAndSaveRisk(ctx context.Context, phoneNumber st
 	}
 
 	const (
-		HalfLifeDays = 110.0
-
+		HalfLifeDays   = 110.0
 		OneYearSeconds = 31536000
 	)
 
 	weights := map[domain.RiskCategory]float64{
 		domain.RiskFraud:     100.0,
 		domain.RiskPhishing:  90.0,
-		domain.RiskDebt:      60.0,
-		domain.RiskSpam:      40.0,
-		domain.RiskSales:     25.0,
-		domain.RiskAutoBlock: 0.0, // Auto-blocks don't add score directly, they affect Velocity.
+		domain.RiskDebt:      40.0,
+		domain.RiskSpam:      20.0,
+		domain.RiskSales:     10.0,
+		domain.RiskAutoBlock: 0.0,
 	}
 
-	var totalScore float64
+	var totalRawScore float64
 	var lastHumanActivity time.Time
 	var autoBlockCount int
 
-	countryCode := history[0].CountryCode
+	uniqueReporters := make(map[string]bool)
 
+	countryCode := history[0].CountryCode
 	now := time.Now().UTC()
 
 	for _, r := range history {
-		// A. Swarm Logic: Count auto-blocks in the last 7 days window
 		if r.Category == domain.RiskAutoBlock {
 			if now.Sub(r.CreatedAt).Hours() < 24*7 {
 				autoBlockCount++
 			}
-			continue // Do not add weight to the score sum
+			continue
 		}
 
-		// Track the last time a human actually complained
+		uniqueReporters[r.ReporterHash] = true
+
 		if r.CreatedAt.After(lastHumanActivity) {
 			lastHumanActivity = r.CreatedAt
 		}
 
-		// B. Mathematical Decay
 		weight := weights[r.Category]
-
-		// Formula: Score = Weight * (0.5 ^ (DaysElapsed / HalfLife))
 		elapsedDays := now.Sub(r.CreatedAt).Hours() / 24.0
 		if elapsedDays < 0 {
 			elapsedDays = 0
 		}
 
 		decayFactor := math.Pow(0.5, elapsedDays/HalfLifeDays)
-		totalScore += weight * decayFactor
+		totalRawScore += weight * decayFactor
 	}
 
-	effectiveLastActivity := lastHumanActivity
+	reportersCount := len(uniqueReporters)
+	var consensusFactor float64
 
+	switch {
+	case reportersCount == 1:
+		consensusFactor = 0.10
+	case reportersCount == 2:
+		consensusFactor = 0.20
+	case reportersCount == 3:
+		consensusFactor = 0.30
+	case reportersCount == 4:
+		consensusFactor = 0.50
+	case reportersCount == 5:
+		consensusFactor = 0.70
+	default:
+		consensusFactor = 1.00
+	}
+
+	finalScore := totalRawScore * consensusFactor
+
+	effectiveLastActivity := lastHumanActivity
 	if autoBlockCount > 10 {
 		effectiveLastActivity = now
-
-		if totalScore < 20 {
-			totalScore = 25.0
+		if finalScore < 25 {
+			finalScore = 25.0
 		}
 	}
 
-	if totalScore > 100.0 {
-		totalScore = 100.0
+	if finalScore > 100.0 {
+		finalScore = 100.0
 	}
 
 	var level domain.RiskLevel
 	switch {
-	case totalScore >= 60:
+	case finalScore >= 60:
 		level = domain.LevelCritical
-	case totalScore >= 20:
+	case finalScore >= 20:
 		level = domain.LevelWarning
 	default:
 		level = domain.LevelSafe
 	}
 
-	if totalScore < 10.0 {
+	if finalScore < 5.0 {
 		return s.repo.DeleteScore(ctx, phoneNumber, countryCode)
 	}
 
 	newScore := &domain.PhoneScore{
 		PhoneNumber:      phoneNumber,
 		CountryCode:      countryCode,
-		Score:            math.Round(totalScore*100) / 100, // Round to 2 decimals
+		Score:            math.Round(finalScore*100) / 100,
 		RiskLevel:        level,
 		LastActivity:     effectiveLastActivity,
 		VelocityHitCount: autoBlockCount,
@@ -172,6 +187,5 @@ func (s *reportService) CalculateAndSaveRisk(ctx context.Context, phoneNumber st
 	if err := s.repo.UpsertScore(ctx, newScore, OneYearSeconds); err != nil {
 		return err
 	}
-
 	return s.repo.UpsertCountryThreat(ctx, newScore, OneYearSeconds)
 }
